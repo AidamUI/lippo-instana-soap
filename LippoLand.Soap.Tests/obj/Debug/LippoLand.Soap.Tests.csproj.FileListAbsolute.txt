@@ -1,0 +1,11 @@
+C:\Users\MuhammadKailaAidamRi\Documents\lippo\LippoLand.Soap.Tests\obj\Debug\LippoLand.Soap.Tests.csprojResolveAssemblyReference.cache
+C:\Users\MuhammadKailaAidamRi\Documents\lippo\LippoLand.Soap.Tests\bin\Debug\LippoLand.Soap.Tests.exe
+C:\Users\MuhammadKailaAidamRi\Documents\lippo\LippoLand.Soap.Tests\bin\Debug\LippoLand.Soap.Tests.pdb
+C:\Users\MuhammadKailaAidamRi\Documents\lippo\LippoLand.Soap.Tests\bin\Debug\mscorlib.dll
+C:\Users\MuhammadKailaAidamRi\Documents\lippo\LippoLand.Soap.Tests\bin\Debug\normidna.nlp
+C:\Users\MuhammadKailaAidamRi\Documents\lippo\LippoLand.Soap.Tests\bin\Debug\normnfc.nlp
+C:\Users\MuhammadKailaAidamRi\Documents\lippo\LippoLand.Soap.Tests\bin\Debug\normnfd.nlp
+C:\Users\MuhammadKailaAidamRi\Documents\lippo\LippoLand.Soap.Tests\bin\Debug\normnfkc.nlp
+C:\Users\MuhammadKailaAidamRi\Documents\lippo\LippoLand.Soap.Tests\bin\Debug\normnfkd.nlp
+C:\Users\MuhammadKailaAidamRi\Documents\lippo\LippoLand.Soap.Tests\obj\Debug\LippoLand.Soap.Tests.exe
+C:\Users\MuhammadKailaAidamRi\Documents\lippo\LippoLand.Soap.Tests\obj\Debug\LippoLand.Soap.Tests.pdb

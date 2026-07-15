@@ -1,0 +1,12 @@
+C:\Users\MuhammadKailaAidamRi\Documents\lippo\LippoLand.Soap.Service\bin\Debug\LippoLand.Soap.Service.exe.config
+C:\Users\MuhammadKailaAidamRi\Documents\lippo\LippoLand.Soap.Service\bin\Debug\LippoLand.Soap.Service.exe
+C:\Users\MuhammadKailaAidamRi\Documents\lippo\LippoLand.Soap.Service\bin\Debug\LippoLand.Soap.Service.pdb
+C:\Users\MuhammadKailaAidamRi\Documents\lippo\LippoLand.Soap.Service\bin\Debug\mscorlib.dll
+C:\Users\MuhammadKailaAidamRi\Documents\lippo\LippoLand.Soap.Service\bin\Debug\normidna.nlp
+C:\Users\MuhammadKailaAidamRi\Documents\lippo\LippoLand.Soap.Service\bin\Debug\normnfc.nlp
+C:\Users\MuhammadKailaAidamRi\Documents\lippo\LippoLand.Soap.Service\bin\Debug\normnfd.nlp
+C:\Users\MuhammadKailaAidamRi\Documents\lippo\LippoLand.Soap.Service\bin\Debug\normnfkc.nlp
+C:\Users\MuhammadKailaAidamRi\Documents\lippo\LippoLand.Soap.Service\bin\Debug\normnfkd.nlp
+C:\Users\MuhammadKailaAidamRi\Documents\lippo\LippoLand.Soap.Service\obj\Debug\LippoLand.Soap.Service.csprojResolveAssemblyReference.cache
+C:\Users\MuhammadKailaAidamRi\Documents\lippo\LippoLand.Soap.Service\obj\Debug\LippoLand.Soap.Service.exe
+C:\Users\MuhammadKailaAidamRi\Documents\lippo\LippoLand.Soap.Service\obj\Debug\LippoLand.Soap.Service.pdb

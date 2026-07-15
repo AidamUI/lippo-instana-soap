@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <ProductVersion>8.0.30319</ProductVersion>
+    <SchemaVersion>2.0</SchemaVersion>
+    <ProjectGuid>{A1B2C3D4-0003-0003-0003-000000000003}</ProjectGuid>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>LippoLand.Soap.Tests</RootNamespace>
+    <AssemblyName>LippoLand.Soap.Tests</AssemblyName>
+    <TargetFrameworkVersion>v4.0</TargetFrameworkVersion>
+    <FileAlignment>512</FileAlignment>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <Optimize>false</Optimize>
+    <OutputPath>bin\Debug\</OutputPath>
+    <DefineConstants>DEBUG;TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <DebugType>pdbonly</DebugType>
+    <Optimize>true</Optimize>
+    <OutputPath>bin\Release\</OutputPath>
+    <DefineConstants>TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+    <Reference Include="System.Net" />
+    <Reference Include="System.Xml" />
+    <Reference Include="System.Configuration" />
+  </ItemGroup>
+  <ItemGroup>
+    <!--
+      Include source files from the client directly — no project reference needed.
+      This avoids pulling in the Instana DLL dependency from the client csproj.
+      InstanaStub.cs (in this project) provides the Instana namespace instead.
+      Note: Link attribute not supported in MSBuild 4.0, omit it.
+    -->
+    <Compile Include="..\LippoLand.Soap.Client\SoapEnvelopes.cs" />
+    <Compile Include="..\LippoLand.Soap.Client\SoapHttpClient.cs" />
+    <!-- Test infrastructure -->
+    <Compile Include="Assert.cs" />
+    <Compile Include="InstanaStub.cs" />
+    <Compile Include="StubHttpListener.cs" />
+    <!-- Test suites -->
+    <Compile Include="SoapEnvelopesTests.cs" />
+    <Compile Include="SoapHttpClientTests.cs" />
+    <!-- Runner -->
+    <Compile Include="Program.cs" />
+  </ItemGroup>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+</Project>
