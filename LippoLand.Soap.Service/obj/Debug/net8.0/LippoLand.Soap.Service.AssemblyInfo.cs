@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("LippoLand.Soap.Service")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+728fead8c9b7c470f66d1f7193dd808a93bf0f98")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+5558c8664b12c87b758b48e25735fc156e2a0a0d")]
 [assembly: System.Reflection.AssemblyProductAttribute("LippoLand.Soap.Service")]
 [assembly: System.Reflection.AssemblyTitleAttribute("LippoLand.Soap.Service")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
