@@ -1,4 +1,4 @@
-using System.ServiceModel;
+using CoreWCF;
 
 namespace LippoLand.Soap.Service
 {
@@ -12,7 +12,8 @@ namespace LippoLand.Soap.Service
     ///   - Every operation returns a single string result (JSON response)
     ///   - A SOAP header AuthHeader (domainName, userName, password) is required
     ///
-    /// We implement a representative subset of the ~100+ real operations.
+    /// We implement a representative subset of the real operations.
+    /// CoreWCF replaces System.ServiceModel for Linux / .NET 8 compatibility.
     /// </summary>
     [ServiceContract(Namespace = "http://tempuri.org/",
                      Name      = "WS_OnlineBookingSoap")]

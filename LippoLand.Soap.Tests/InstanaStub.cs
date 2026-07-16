@@ -1,93 +1,43 @@
 using System;
 using System.Collections.Generic;
+using System.Net;
+using System.Net.Http;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 
-/// <summary>
-/// Minimal stub of Instana.ManagedTracing.Sdk so the test project compiles
-/// without the NuGet package installed. The stub records what was called so
-/// SoapHttpClientTests can assert on span behaviour.
-/// </summary>
-
-namespace Instana.ManagedTracing.Api
+namespace LippoLand.Soap.Tests
 {
-    public class DistributedTraceInformation
+    /// <summary>
+    /// Fake HttpMessageHandler used to intercept calls to the Instana agent
+    /// in unit tests. Records every request so tests can assert on:
+    ///   - soap.action tag in the span payload
+    ///   - soap.operation tag
+    ///   - soap.endpoint tag
+    ///   - X-INSTANA-T / X-INSTANA-S headers forwarded to the SOAP target
+    /// </summary>
+    public sealed class InstanaHandlerStub : HttpMessageHandler
     {
-        public long ParentSpanId { get; set; }
-        public long TraceId      { get; set; }
-    }
-}
+        public readonly List<(string Url, string Body)> Requests
+            = new List<(string, string)>();
 
-namespace Instana.ManagedTracing.Sdk
-{
-    using Instana.ManagedTracing.Api;
-
-    public class CustomSpan : IDisposable
-    {
-        // ── Recorded calls for test assertions ───────────────────────────────
-        public static readonly List<string> TagsSet            = new List<string>();
-        public static readonly List<string> ServiceNamesSet    = new List<string>();
-        public static readonly List<string> EndpointNamesSet   = new List<string>();
-        public static Action<string, string> LastPropagationCb = null;
-
-        public static void Reset()
+        protected override HttpResponseMessage Send(
+            HttpRequestMessage request, CancellationToken cancellationToken)
         {
-            TagsSet.Clear();
-            ServiceNamesSet.Clear();
-            EndpointNamesSet.Clear();
-            LastPropagationCb = null;
+            string body = request.Content != null
+                ? request.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+                : "";
+            Requests.Add((request.RequestUri.ToString(), body));
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{}", Encoding.UTF8, "application/json")
+            };
         }
 
-        // ── SDK API surface ───────────────────────────────────────────────────
-
-        public static CustomSpan Create()
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
         {
-            return new CustomSpan();
+            return Task.FromResult(Send(request, cancellationToken));
         }
-
-        public static CustomSpan CreateEntry()
-        {
-            return new CustomSpan();
-        }
-
-        public static CustomSpan CreateExit(object owner, Action<string, string> propagationCallback)
-        {
-            LastPropagationCb = propagationCallback;
-            // Simulate the SDK writing trace context headers
-            propagationCallback("X-INSTANA-T", "deadbeef00000001");
-            propagationCallback("X-INSTANA-S", "deadbeef00000002");
-            return new CustomSpan();
-        }
-
-        public void SetTag(string key, string value)
-        {
-            TagsSet.Add(key + "=" + value);
-        }
-
-        public void SetServiceName(string name)
-        {
-            ServiceNamesSet.Add(name);
-        }
-
-        public void SetEndpointName(string name)
-        {
-            EndpointNamesSet.Add(name);
-        }
-
-        public void SetData(string key, string value) { }
-        public void SetResult(string result)           { }
-        public void SetError(Exception ex)             { }
-
-        public T Wrap<T>(Func<T> func, bool rethrow = true)
-        {
-            try   { return func(); }
-            catch { if (rethrow) throw; return default(T); }
-        }
-
-        public void WrapAction(Action action, bool rethrow = true)
-        {
-            try   { action(); }
-            catch { if (rethrow) throw; }
-        }
-
-        public void Dispose() { }
     }
 }

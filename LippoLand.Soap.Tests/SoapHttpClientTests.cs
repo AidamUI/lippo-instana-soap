@@ -1,157 +1,143 @@
 using System;
+using System.Net;
+using System.Net.Http;
 using LippoLand.Soap.Client;
-using Instana.ManagedTracing.Sdk;
 
 namespace LippoLand.Soap.Tests
 {
     /// <summary>
     /// Unit tests for SoapHttpClient.
     ///
-    /// Because the Instana SDK is stubbed in InstanaStub.cs, we can assert on:
-    ///   1.  ExtractOperationName — tested via public method (made internal+InternalsVisibleTo
-    ///       isn't available in net40 without AssemblyInfo, so we test it indirectly
-    ///       via SetTag recording in the stub)
-    ///   2.  Tags recorded on the span: soap.action, soap.operation, soap.endpoint
-    ///   3.  ServiceName and EndpointName set on exit span
-    ///   4.  Trace propagation headers passed to HTTP request (verified via stub recording)
-    ///   5.  SOAPAction header is double-quoted per SOAP 1.1 spec
+    /// Tests assert on:
+    ///   1.  ExtractOperationName: extracts last path segment of SOAPAction URI
+    ///   2.  SOAPAction header is double-quoted per SOAP 1.1 spec
+    ///   3.  Instana agent receives a span with soap.action, soap.operation, soap.endpoint
+    ///   4.  X-INSTANA-T / X-INSTANA-S propagation headers are sent to the SOAP target
+    ///   5.  Response body is returned correctly
+    ///   6.  Exceptions are rethrown
     ///
-    /// For HTTP tests we use a minimal in-process HttpListener as the stub backend.
+    /// HTTP is tested with an in-process HttpListener stub.
+    /// The Instana agent calls are intercepted by InstanaHandlerStub.
     /// </summary>
     public static class SoapHttpClientTests
     {
         public static void Run()
         {
-            Test_OperationName_ExtractedCorrectly_FromFullUri();
-            Test_OperationName_ExtractedCorrectly_TrailingSlash();
-            Test_OperationName_EmptyAction_ReturnsUnknown();
-            Test_OperationName_NullAction_ReturnsUnknown();
-            Test_SpanTags_Set_Correctly();
-            Test_SpanServiceName_And_EndpointName_Set();
-            Test_PropagationHeaders_Injected();
-            Test_HttpCall_SendsSoapActionHeader();
-            Test_HttpCall_Returns_ResponseBody();
-            Test_HttpCall_OnError_SpanCaptures_And_Rethrows();
+            Test_ExtractOperationName_FullUri();
+            Test_ExtractOperationName_TrailingSlash();
+            Test_ExtractOperationName_Empty();
+            Test_ExtractOperationName_Null();
+            Test_SpanContains_SoapActionTag();
+            Test_SpanContains_SoapOperationTag();
+            Test_SpanContains_SoapEndpointTag();
+            Test_PropagationHeaders_Sent_To_SoapTarget();
+            Test_SOAPAction_Header_IsDoubleQuoted();
+            Test_ResponseBody_Returned();
+            Test_Exception_Rethrown();
             Console.WriteLine("  [SoapHttpClientTests] All passed.");
         }
 
-        // ── Operation name extraction (tested via span.SetTag recording) ─────
+        // ── ExtractOperationName (public static — can be called directly) ─────
 
-        static void Test_OperationName_ExtractedCorrectly_FromFullUri()
+        static void Test_ExtractOperationName_FullUri()
         {
-            CustomSpan.Reset();
-            // We need an HTTP listener for any Call() test — use a mock
+            string result = SoapHttpClient.ExtractOperationName("http://tempuri.org/BookingUnit");
+            Assert.AreEqual("BookingUnit", result, "Expected BookingUnit");
+        }
+
+        static void Test_ExtractOperationName_TrailingSlash()
+        {
+            // Trailing slash → substring after last '/' is ""
+            string result = SoapHttpClient.ExtractOperationName("http://tempuri.org/");
+            Assert.AreEqual("", result, "Trailing slash should yield empty string");
+        }
+
+        static void Test_ExtractOperationName_Empty()
+        {
+            Assert.AreEqual("UnknownOperation",
+                SoapHttpClient.ExtractOperationName(""), "Empty → UnknownOperation");
+        }
+
+        static void Test_ExtractOperationName_Null()
+        {
+            Assert.AreEqual("UnknownOperation",
+                SoapHttpClient.ExtractOperationName(null), "Null → UnknownOperation");
+        }
+
+        // ── Span tag content ─────────────────────────────────────────────────
+
+        static void Test_SpanContains_SoapActionTag()
+        {
+            var (_, instanaStub, client) = MakeClient("http://localhost:18080/Test/");
             using (var listener = new StubHttpListener("http://localhost:18080/Test/", "<r/>"))
-            {
-                var client = new SoapHttpClient("http://localhost:18080/Test/");
                 client.Call("http://tempuri.org/BookingUnit", "<soap/>");
-            }
-            Assert.IsTrue(CustomSpan.TagsSet.Contains("soap.operation=BookingUnit"),
-                "Expected soap.operation=BookingUnit in tags: " + string.Join(", ", CustomSpan.TagsSet));
+
+            bool found = instanaStub.Requests.Exists(r =>
+                r.Body.Contains("\"soap.action\"") &&
+                r.Body.Contains("BookingUnit"));
+            Assert.IsTrue(found,
+                "Instana span should contain soap.action=BookingUnit. Got:\n" +
+                string.Join("\n", instanaStub.Requests.ConvertAll(r => r.Body)));
         }
 
-        static void Test_OperationName_ExtractedCorrectly_TrailingSlash()
+        static void Test_SpanContains_SoapOperationTag()
         {
-            CustomSpan.Reset();
+            var (_, instanaStub, client) = MakeClient("http://localhost:18081/Test/");
             using (var listener = new StubHttpListener("http://localhost:18081/Test/", "<r/>"))
-            {
-                var client = new SoapHttpClient("http://localhost:18081/Test/");
-                // SOAPAction with trailing slash → operation should be empty string, not crash
-                client.Call("http://tempuri.org/", "<soap/>");
-            }
-            // After trailing slash, substring is "" — op name is ""
-            Assert.IsTrue(CustomSpan.TagsSet.Exists(t => t.StartsWith("soap.operation=")),
-                "soap.operation tag should exist even for trailing-slash action");
-        }
-
-        static void Test_OperationName_EmptyAction_ReturnsUnknown()
-        {
-            CustomSpan.Reset();
-            using (var listener = new StubHttpListener("http://localhost:18082/Test/", "<r/>"))
-            {
-                var client = new SoapHttpClient("http://localhost:18082/Test/");
-                client.Call("", "<soap/>");
-            }
-            Assert.IsTrue(CustomSpan.TagsSet.Contains("soap.operation=UnknownOperation"),
-                "Expected UnknownOperation for empty action");
-        }
-
-        static void Test_OperationName_NullAction_ReturnsUnknown()
-        {
-            CustomSpan.Reset();
-            using (var listener = new StubHttpListener("http://localhost:18083/Test/", "<r/>"))
-            {
-                var client = new SoapHttpClient("http://localhost:18083/Test/");
-                client.Call(null, "<soap/>");
-            }
-            Assert.IsTrue(CustomSpan.TagsSet.Contains("soap.operation=UnknownOperation"),
-                "Expected UnknownOperation for null action");
-        }
-
-        // ── Span tag assertions ───────────────────────────────────────────────
-
-        static void Test_SpanTags_Set_Correctly()
-        {
-            CustomSpan.Reset();
-            using (var listener = new StubHttpListener("http://localhost:18084/Test/", "<r/>"))
-            {
-                var client = new SoapHttpClient("http://localhost:18084/Test/");
                 client.Call("http://tempuri.org/ReserveSelectedUnit", "<soap/>");
-            }
-            Assert.IsTrue(CustomSpan.TagsSet.Contains("soap.action=http://tempuri.org/ReserveSelectedUnit"),
-                "soap.action tag missing or wrong");
-            Assert.IsTrue(CustomSpan.TagsSet.Contains("soap.operation=ReserveSelectedUnit"),
-                "soap.operation tag missing or wrong");
-            Assert.IsTrue(CustomSpan.TagsSet.Contains("soap.endpoint=http://localhost:18084/Test/"),
-                "soap.endpoint tag missing or wrong");
+
+            bool found = instanaStub.Requests.Exists(r =>
+                r.Body.Contains("\"soap.operation\"") &&
+                r.Body.Contains("ReserveSelectedUnit"));
+            Assert.IsTrue(found, "Instana span should contain soap.operation=ReserveSelectedUnit");
         }
 
-        static void Test_SpanServiceName_And_EndpointName_Set()
+        static void Test_SpanContains_SoapEndpointTag()
         {
-            CustomSpan.Reset();
-            using (var listener = new StubHttpListener("http://localhost:18085/Test/", "<r/>"))
-            {
-                var client = new SoapHttpClient("http://localhost:18085/Test/");
+            var (_, instanaStub, client) = MakeClient("http://localhost:18082/Test/");
+            using (var listener = new StubHttpListener("http://localhost:18082/Test/", "<r/>"))
                 client.Call("http://tempuri.org/VerifyPayment", "<soap/>");
-            }
-            Assert.IsTrue(CustomSpan.ServiceNamesSet.Contains("LippoLand-OnlineBooking"),
-                "ServiceName not set to LippoLand-OnlineBooking");
-            Assert.IsTrue(CustomSpan.EndpointNamesSet.Contains("VerifyPayment"),
-                "EndpointName not set to VerifyPayment");
+
+            bool found = instanaStub.Requests.Exists(r =>
+                r.Body.Contains("\"soap.endpoint\"") &&
+                r.Body.Contains("18082"));
+            Assert.IsTrue(found, "Instana span should contain soap.endpoint with port 18082");
         }
 
-        // ── Trace propagation ─────────────────────────────────────────────────
+        // ── Trace propagation headers ─────────────────────────────────────────
 
-        static void Test_PropagationHeaders_Injected()
+        static void Test_PropagationHeaders_Sent_To_SoapTarget()
         {
-            CustomSpan.Reset();
-            string capturedTraceId  = null;
-            string capturedSpanId   = null;
-            // Capture headers the stub listener receives
-            using (var listener = new StubHttpListener("http://localhost:18086/Test/",
+            string capturedTraceId = null;
+            string capturedSpanId  = null;
+
+            // Use a real StubHttpListener so we can capture the received headers
+            using (var listener = new StubHttpListener("http://localhost:18083/Test/",
                 "<r/>",
                 headers => {
                     capturedTraceId = headers["X-INSTANA-T"];
                     capturedSpanId  = headers["X-INSTANA-S"];
                 }))
             {
-                var client = new SoapHttpClient("http://localhost:18086/Test/");
+                var (_, _, client) = MakeClient("http://localhost:18083/Test/");
                 client.Call("http://tempuri.org/BookingUnit", "<soap/>");
             }
-            Assert.AreEqual("deadbeef00000001", capturedTraceId, "X-INSTANA-T header not propagated");
-            Assert.AreEqual("deadbeef00000002", capturedSpanId,  "X-INSTANA-S header not propagated");
+
+            // The client sets X-INSTANA-T / X-INSTANA-S from the spanId/traceId it generates
+            Assert.IsNotNullOrEmpty(capturedTraceId, "X-INSTANA-T should be forwarded to SOAP target");
+            Assert.IsNotNullOrEmpty(capturedSpanId,  "X-INSTANA-S should be forwarded to SOAP target");
         }
 
         // ── HTTP wire behaviour ───────────────────────────────────────────────
 
-        static void Test_HttpCall_SendsSoapActionHeader()
+        static void Test_SOAPAction_Header_IsDoubleQuoted()
         {
             string capturedSoapAction = null;
-            using (var listener = new StubHttpListener("http://localhost:18087/Test/",
+            using (var listener = new StubHttpListener("http://localhost:18084/Test/",
                 "<r/>",
                 headers => { capturedSoapAction = headers["SOAPAction"]; }))
             {
-                var client = new SoapHttpClient("http://localhost:18087/Test/");
+                var (_, _, client) = MakeClient("http://localhost:18084/Test/");
                 client.Call("http://tempuri.org/BookingUnit", "<soap/>");
             }
             // SOAP 1.1 spec: SOAPAction must be double-quoted
@@ -159,33 +145,44 @@ namespace LippoLand.Soap.Tests
                 "SOAPAction header must be double-quoted per SOAP 1.1 spec");
         }
 
-        static void Test_HttpCall_Returns_ResponseBody()
+        static void Test_ResponseBody_Returned()
         {
-            CustomSpan.Reset();
             string expected = "<soap:Envelope><soap:Body><result>OK</result></soap:Body></soap:Envelope>";
-            using (var listener = new StubHttpListener("http://localhost:18088/Test/", expected))
+            using (var listener = new StubHttpListener("http://localhost:18085/Test/", expected))
             {
-                var client = new SoapHttpClient("http://localhost:18088/Test/");
+                var (_, _, client) = MakeClient("http://localhost:18085/Test/");
                 string actual = client.Call("http://tempuri.org/BookingUnit", "<soap/>");
                 Assert.AreEqual(expected, actual, "Response body not returned correctly");
             }
         }
 
-        static void Test_HttpCall_OnError_SpanCaptures_And_Rethrows()
+        static void Test_Exception_Rethrown()
         {
-            CustomSpan.Reset();
-            // Point at a port with nothing listening → WebException
-            var client = new SoapHttpClient("http://localhost:19999/NoService/");
+            // Port 19999 — nothing listening → HttpRequestException
+            var (_, _, client) = MakeClient("http://localhost:19999/NoService/");
             bool threw = false;
-            try
-            {
-                client.Call("http://tempuri.org/BookingUnit", "<soap/>");
-            }
-            catch (Exception)
-            {
-                threw = true;
-            }
+            try   { client.Call("http://tempuri.org/BookingUnit", "<soap/>"); }
+            catch { threw = true; }
             Assert.IsTrue(threw, "Expected exception to be rethrown on network error");
+        }
+
+        // ── Helpers ──────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Creates a SoapHttpClient with:
+        ///   - real HttpClient for the SOAP call (hits the StubHttpListener)
+        ///   - InstanaHandlerStub for the agent calls (intercepted in-memory)
+        /// Returns (soapHttp, instanaStub, client).
+        /// </summary>
+        private static (HttpClient soapHttp, InstanaHandlerStub instanaStub, SoapHttpClient client)
+            MakeClient(string endpointUrl)
+        {
+            var soapHttp    = new HttpClient();
+            var instanaStub = new InstanaHandlerStub();
+            var instanaHttp = new HttpClient(instanaStub);
+            var client      = new SoapHttpClient(endpointUrl, soapHttp, instanaHttp,
+                                                 "http://localhost:9999"); // fake agent URL
+            return (soapHttp, instanaStub, client);
         }
     }
 }

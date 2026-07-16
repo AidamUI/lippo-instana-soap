@@ -1,41 +1,48 @@
 using System;
-using System.Configuration;
 
 namespace LippoLand.Soap.Client
 {
     /// <summary>
-    /// Entry point demonstrating real WS_OnlineBooking operations with Instana tracing.
+    /// Entry point: fires 5 SOAP operations against WS_OnlineBooking,
+    /// each wrapped in an Instana exit span with soap.action tagged.
     ///
-    /// Real service facts (from live WSDL scrape):
-    ///   - URL:       https://connect.lippoland.id/InternalMobileAppsService/WS_OnlineBooking.asmx
-    ///   - Namespace: http://tempuri.org/
-    ///   - Auth:      SOAP header AuthHeader (domainName, userName, password)
-    ///   - Params:    all ops take a single JSON string
-    ///   - Returns:   all ops return a single JSON string
+    /// Real service:
+    ///   URL:       https://connect.lippoland.id/InternalMobileAppsService/WS_OnlineBooking.asmx
+    ///   Namespace: http://tempuri.org/
+    ///   Auth:      SOAP header AuthHeader (domainName, userName, password)
     ///
-    /// Credentials are read from App.config — never hardcoded.
+    /// Configuration via environment variables (override at runtime):
+    ///   LIPPO_SERVICE_URL   — default: http://localhost:8080/OnlineBooking
+    ///   LIPPO_AUTH_DOMAIN   — default: LIPPOLAND
+    ///   LIPPO_AUTH_USER     — default: demo_user
+    ///   LIPPO_AUTH_PASS     — default: demo_pass
+    ///   INSTANA_AGENT_URL   — default: http://localhost:42699
     /// </summary>
     class Program
     {
-        // Defaults for local stub; override in App.config for real backend
-        private const string DEFAULT_SERVICE_URL = "http://localhost:8080/OnlineBooking";
-        private const string BASE_ACTION         = "http://tempuri.org/";
+        private const string BASE_ACTION = "http://tempuri.org/";
 
         static void Main(string[] args)
         {
-            string serviceUrl  = ConfigurationManager.AppSettings["ServiceUrl"]   ?? DEFAULT_SERVICE_URL;
-            string authDomain  = ConfigurationManager.AppSettings["AuthDomain"]   ?? "LIPPOLAND";
-            string authUser    = ConfigurationManager.AppSettings["AuthUser"]     ?? "demo_user";
-            string authPass    = ConfigurationManager.AppSettings["AuthPassword"] ?? "demo_pass";
+            // Read config from environment (easy to override in Docker / VM)
+            string serviceUrl  = Env("LIPPO_SERVICE_URL",  "http://localhost:8080/OnlineBooking");
+            string authDomain  = Env("LIPPO_AUTH_DOMAIN",  "LIPPOLAND");
+            string authUser    = Env("LIPPO_AUTH_USER",    "demo_user");
+            string authPass    = Env("LIPPO_AUTH_PASS",    "demo_pass");
+            string instanaUrl  = Env("INSTANA_AGENT_URL",  "http://localhost:42699");
 
             Console.WriteLine("=================================================");
             Console.WriteLine(" LippoLand WS_OnlineBooking — Instana Tracing Demo");
-            Console.WriteLine(" Target: {0}", serviceUrl);
+            Console.WriteLine(" Target  : {0}", serviceUrl);
+            Console.WriteLine(" Instana : {0}", instanaUrl);
             Console.WriteLine("=================================================\n");
 
-            var client = new SoapHttpClient(serviceUrl);
+            var client = new SoapHttpClient(serviceUrl,
+                                            new System.Net.Http.HttpClient(),
+                                            new System.Net.Http.HttpClient(),
+                                            instanaUrl);
 
-            // ── Call 1: retrieveComponentDiagramatic (friend's operation) ─────
+            // ── Call 1: retrieveComponentDiagramatic ─────────────────────────
             RunCall(client,
                 soapAction:   BASE_ACTION + "retrieveComponentDiagramatic",
                 soapEnvelope: SoapEnvelopes.retrieveComponentDiagramatic(
@@ -43,7 +50,7 @@ namespace LippoLand.Soap.Client
                     authDomain: authDomain, authUser: authUser, authPass: authPass),
                 label: "retrieveComponentDiagramatic");
 
-            // ── Call 2: retrieveAvailableUnitForOnlineBooking ─────────────────
+            // ── Call 2: retrieveAvailableUnitForOnlineBooking ────────────────
             RunCall(client,
                 soapAction:   BASE_ACTION + "retrieveAvailableUnitForOnlineBooking",
                 soapEnvelope: SoapEnvelopes.retrieveAvailableUnitForOnlineBooking(
@@ -51,7 +58,7 @@ namespace LippoLand.Soap.Client
                     authDomain: authDomain, authUser: authUser, authPass: authPass),
                 label: "retrieveAvailableUnitForOnlineBooking");
 
-            // ── Call 3: ReserveSelectedUnit ───────────────────────────────────
+            // ── Call 3: ReserveSelectedUnit ──────────────────────────────────
             RunCall(client,
                 soapAction:   BASE_ACTION + "ReserveSelectedUnit",
                 soapEnvelope: SoapEnvelopes.ReserveSelectedUnit(
@@ -59,7 +66,7 @@ namespace LippoLand.Soap.Client
                     authDomain: authDomain, authUser: authUser, authPass: authPass),
                 label: "ReserveSelectedUnit");
 
-            // ── Call 4: CalculateSellingPriceUnit ─────────────────────────────
+            // ── Call 4: CalculateSellingPriceUnit ────────────────────────────
             RunCall(client,
                 soapAction:   BASE_ACTION + "CalculateSellingPriceUnit",
                 soapEnvelope: SoapEnvelopes.CalculateSellingPriceUnit(
@@ -67,7 +74,7 @@ namespace LippoLand.Soap.Client
                     authDomain: authDomain, authUser: authUser, authPass: authPass),
                 label: "CalculateSellingPriceUnit");
 
-            // ── Call 5: BookingUnit ───────────────────────────────────────────
+            // ── Call 5: BookingUnit ──────────────────────────────────────────
             RunCall(client,
                 soapAction:   BASE_ACTION + "BookingUnit",
                 soapEnvelope: SoapEnvelopes.BookingUnit(
@@ -79,10 +86,10 @@ namespace LippoLand.Soap.Client
             Console.WriteLine(" All calls complete. Check Instana for traces.");
             Console.WriteLine(" Filter: soap.action = \"{0}BookingUnit\"", BASE_ACTION);
             Console.WriteLine("=================================================");
-            Console.ReadLine();
         }
 
-        private static void RunCall(SoapHttpClient client, string soapAction, string soapEnvelope, string label)
+        private static void RunCall(SoapHttpClient client, string soapAction,
+                                    string soapEnvelope, string label)
         {
             Console.WriteLine("── {0} ──", label);
             Console.WriteLine("   SOAPAction : {0}", soapAction);
@@ -90,12 +97,15 @@ namespace LippoLand.Soap.Client
             {
                 string response = client.Call(soapAction, soapEnvelope);
                 Console.WriteLine("   Response   : {0}\n",
-                    response.Length > 300 ? response.Substring(0, 300) + "..." : response);
+                    response.Length > 200 ? response.Substring(0, 200) + "..." : response);
             }
             catch (Exception ex)
             {
                 Console.WriteLine("   ERROR      : {0}\n", ex.Message);
             }
         }
+
+        private static string Env(string key, string fallback)
+            => Environment.GetEnvironmentVariable(key) ?? fallback;
     }
 }

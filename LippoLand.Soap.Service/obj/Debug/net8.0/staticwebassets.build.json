@@ -1,0 +1,11 @@
+{
+  "Version": 1,
+  "Hash": "O5PB7E2rEONZhf8PVyo8F3+K+lCRr4Mo0nAcIu46hGA=",
+  "Source": "LippoLand.Soap.Service",
+  "BasePath": "_content/LippoLand.Soap.Service",
+  "Mode": "Default",
+  "ManifestType": "Build",
+  "ReferencedProjectsConfiguration": [],
+  "DiscoveryPatterns": [],
+  "Assets": []
+}

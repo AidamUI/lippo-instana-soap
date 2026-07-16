@@ -1,57 +1,60 @@
 using System;
-using System.ServiceModel;
-using System.ServiceModel.Description;
+using CoreWCF;
+using CoreWCF.Configuration;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace LippoLand.Soap.Service
 {
     /// <summary>
-    /// Self-hosted WCF service host for .NET 4.0.
-    /// Run this first, then run LippoLand.Soap.Client.
+    /// Self-hosted CoreWCF service — Linux / .NET 8 replacement for the
+    /// classic WCF self-host. Exposes BasicHttpBinding on :8080.
     ///
-    /// WSDL is accessible at: http://localhost:8080/OnlineBooking?wsdl
+    /// WSDL: http://localhost:8080/OnlineBooking?wsdl
+    ///
+    /// Run this first, then run LippoLand.Soap.Client.
     /// </summary>
     class Program
     {
         static void Main(string[] args)
         {
-            Uri baseAddress = new Uri("http://localhost:8080/OnlineBooking");
+            var builder = WebApplication.CreateBuilder(args);
+            builder.WebHost.UseUrls("http://0.0.0.0:8080");
 
-            using (ServiceHost host = new ServiceHost(typeof(OnlineBookingService), baseAddress))
+            builder.Services.AddServiceModelServices();
+            builder.Services.AddServiceModelMetadata();
+            builder.Services.AddSingleton<OnlineBookingService>();
+
+            var app = builder.Build();
+
+            app.UseServiceModel(svc =>
             {
-                // BasicHttpBinding = plain SOAP 1.1 over HTTP — same binding as the real ASMX
-                BasicHttpBinding binding = new BasicHttpBinding
+                svc.AddService<OnlineBookingService>(opts =>
                 {
-                    MaxReceivedMessageSize = 10 * 1024 * 1024
-                };
+                    // Base address — WSDL will be at /OnlineBooking?wsdl
+                    opts.BaseAddresses.Add(new Uri("http://localhost:8080/OnlineBooking"));
+                });
 
-                host.AddServiceEndpoint(typeof(IOnlineBookingService), binding, "");
+                // Empty relative path → endpoint lives exactly at the base address
+                svc.AddServiceEndpoint<OnlineBookingService, IOnlineBookingService>(
+                    new BasicHttpBinding
+                    {
+                        MaxReceivedMessageSize = 10 * 1024 * 1024
+                    },
+                    "");
+            });
 
-                // Enable WSDL / MEX — namespace is http://tempuri.org/ (matches real service)
-                ServiceMetadataBehavior smb = new ServiceMetadataBehavior
-                {
-                    HttpGetEnabled = true,
-                    MetadataExporter = { PolicyVersion = PolicyVersion.Policy15 }
-                };
-                host.Description.Behaviors.Add(smb);
+            var smb = app.Services.GetRequiredService<CoreWCF.Description.ServiceMetadataBehavior>();
+            smb.HttpGetEnabled = true;
 
-                // Add MEX endpoint (optional but conventional)
-                host.AddServiceEndpoint(
-                    ServiceMetadataBehavior.MexContractName,
-                    MetadataExchangeBindings.CreateMexHttpBinding(),
-                    "mex");
+            Console.WriteLine("=================================================");
+            Console.WriteLine(" LippoLand SOAP Service is running.");
+            Console.WriteLine(" Endpoint : http://localhost:8080/OnlineBooking");
+            Console.WriteLine(" WSDL     : http://localhost:8080/OnlineBooking?wsdl");
+            Console.WriteLine("=================================================");
 
-                host.Open();
-
-                Console.WriteLine("=================================================");
-                Console.WriteLine(" LippoLand SOAP Service is running.");
-                Console.WriteLine(" Endpoint : {0}", baseAddress);
-                Console.WriteLine(" WSDL     : {0}?wsdl", baseAddress);
-                Console.WriteLine("=================================================");
-                Console.WriteLine("Press ENTER to stop...");
-                Console.ReadLine();
-
-                host.Close();
-            }
+            app.Run();
         }
     }
 }
