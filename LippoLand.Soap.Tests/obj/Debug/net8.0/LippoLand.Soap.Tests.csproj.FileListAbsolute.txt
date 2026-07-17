@@ -1,0 +1,15 @@
+/src/LippoLand.Soap.Tests/bin/Debug/net8.0/LippoLand.Soap.Tests
+/src/LippoLand.Soap.Tests/bin/Debug/net8.0/LippoLand.Soap.Tests.deps.json
+/src/LippoLand.Soap.Tests/bin/Debug/net8.0/LippoLand.Soap.Tests.runtimeconfig.json
+/src/LippoLand.Soap.Tests/bin/Debug/net8.0/LippoLand.Soap.Tests.dll
+/src/LippoLand.Soap.Tests/bin/Debug/net8.0/LippoLand.Soap.Tests.pdb
+/src/LippoLand.Soap.Tests/obj/Debug/net8.0/LippoLand.Soap.Tests.GeneratedMSBuildEditorConfig.editorconfig
+/src/LippoLand.Soap.Tests/obj/Debug/net8.0/LippoLand.Soap.Tests.AssemblyInfoInputs.cache
+/src/LippoLand.Soap.Tests/obj/Debug/net8.0/LippoLand.Soap.Tests.AssemblyInfo.cs
+/src/LippoLand.Soap.Tests/obj/Debug/net8.0/LippoLand.Soap.Tests.csproj.CoreCompileInputs.cache
+/src/LippoLand.Soap.Tests/obj/Debug/net8.0/LippoLand.Soap.Tests.sourcelink.json
+/src/LippoLand.Soap.Tests/obj/Debug/net8.0/LippoLand.Soap.Tests.dll
+/src/LippoLand.Soap.Tests/obj/Debug/net8.0/refint/LippoLand.Soap.Tests.dll
+/src/LippoLand.Soap.Tests/obj/Debug/net8.0/LippoLand.Soap.Tests.pdb
+/src/LippoLand.Soap.Tests/obj/Debug/net8.0/LippoLand.Soap.Tests.genruntimeconfig.cache
+/src/LippoLand.Soap.Tests/obj/Debug/net8.0/ref/LippoLand.Soap.Tests.dll

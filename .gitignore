@@ -1,0 +1,6 @@
+# Docker crash dumps (written as root)
+core.*
+
+# Build outputs
+**/bin/
+**/obj/
