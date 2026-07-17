@@ -60,14 +60,15 @@ namespace LippoLand.Soap.Service
         /// <summary>
         /// Opens an entry span for the given SOAP operation name.
         /// Mirrors: CustomSpan.Create() in Instana.ManagedTracing.Sdk
+        /// The span is reported as a single complete payload on Dispose()
+        /// because the agent requires 'duration' on every span (400 without it).
         /// </summary>
         public static InstanaSpan Create(string operationName,
                                          string agentUrl  = DEFAULT_AGENT,
                                          HttpClient http  = null)
         {
-            var span = new InstanaSpan(operationName, agentUrl, http ?? new HttpClient());
-            span.Open();
-            return span;
+            // Don't call Open() — we report one complete span on Dispose instead
+            return new InstanaSpan(operationName, agentUrl, http ?? new HttpClient());
         }
 
         /// <summary>
@@ -120,61 +121,45 @@ namespace LippoLand.Soap.Service
             }
         }
 
-        /// <summary>Closes the span and reports it to the Instana agent.</summary>
+        /// <summary>Reports the complete span to the Instana agent and disposes.</summary>
         public void Dispose()
         {
             if (_disposed) return;
             _disposed = true;
             long durationMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - _startMs;
-            CloseSpan(durationMs);
+            ReportSpan(durationMs);
         }
 
-        // ── Instana agent REST calls ──────────────────────────────────────────
+        // ── Instana agent REST call ───────────────────────────────────────────
 
-        private void Open()
+        private void ReportSpan(long durationMs)
         {
             try
             {
+                // tags{} → searchable in Instana Unbounded Analytics (SetTag equivalent)
+                // data{} → service/endpoint mapping, not searchable
+                // error must be explicit — omitting it causes Instana to infer errors
                 string body = string.Format(
                     "{{\"spanId\":\"{0}\",\"traceId\":\"{1}\"," +
                     "\"type\":\"ENTRY\",\"name\":\"soap.server\"," +
-                    "\"service\":\"LippoLand-OnlineBooking\"," +
-                    "\"endpoint\":\"{2}\"," +
-                    "\"timestamp\":{3}}}",
-                    _spanId, _traceId,
-                    Esc(_operationName),
-                    _startMs);
-
-                var req = new HttpRequestMessage(HttpMethod.Post,
-                    _agentUrl + "/com.instana.plugin.generic.trace")
-                {
-                    Content = new StringContent(body, Encoding.UTF8, "application/json")
-                };
-                _http.Send(req);
-            }
-            catch { /* agent unreachable — degrade gracefully, never break the SOAP call */ }
-        }
-
-        private void CloseSpan(long durationMs)
-        {
-            try
-            {
-                string errorJson = _hasError
-                    ? string.Format(",\"error\":true,\"errorMessage\":\"{0}\"",
-                                    Esc(_errorMessage))
-                    : "";
-
-                string body = string.Format(
-                    "{{\"spanId\":\"{0}\",\"traceId\":\"{1}\"," +
-                    "\"duration\":{2}," +
-                    "\"data\":{{" +
-                    "\"soap.action\":\"{3}\"," +
-                    "\"soap.operation\":\"{3}\"," +
+                    "\"timestamp\":{2}," +
+                    "\"duration\":{3}," +
+                    "\"error\":{5}," +
+                    "\"tags\":{{" +
+                    "\"soap.action\":\"{4}\"," +
+                    "\"soap.operation\":\"{4}\"," +
                     "\"soap.type\":\"server\"" +
-                    "}}{4}}}",
-                    _spanId, _traceId, durationMs,
+                    "}}," +
+                    "\"data\":{{" +
+                    "\"service\":\"LippoLand-OnlineBooking\"," +
+                    "\"endpoint\":\"{4}\"{6}" +
+                    "}}}}",
+                    _spanId, _traceId,
+                    _startMs,
+                    durationMs,
                     Esc(_operationName),
-                    errorJson);
+                    _hasError ? "true" : "false",
+                    _hasError ? string.Format(",\"errorMessage\":\"{0}\"", Esc(_errorMessage)) : "");
 
                 var req = new HttpRequestMessage(HttpMethod.Post,
                     _agentUrl + "/com.instana.plugin.generic.trace")

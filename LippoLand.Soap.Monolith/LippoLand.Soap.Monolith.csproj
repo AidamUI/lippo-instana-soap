@@ -24,6 +24,7 @@
     -->
     <Compile Include="../LippoLand.Soap.Service/IOnlineBookingService.cs" />
     <Compile Include="../LippoLand.Soap.Service/OnlineBookingService.cs" />
+    <Compile Include="../LippoLand.Soap.Service/InstanaSpan.cs" />
     <Compile Include="../LippoLand.Soap.Client/SoapHttpClient.cs" />
     <Compile Include="../LippoLand.Soap.Client/SoapEnvelopes.cs" />
   </ItemGroup>

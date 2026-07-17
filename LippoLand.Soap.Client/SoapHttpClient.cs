@@ -56,19 +56,17 @@ namespace LippoLand.Soap.Client
         {
             string operationName = ExtractOperationName(soapAction);
             var    sw            = System.Diagnostics.Stopwatch.StartNew();
-            string spanId        = null;
-            string traceId       = null;
+            // Generate trace IDs upfront so we can propagate them in headers
+            string spanId        = NewId();
+            string traceId       = NewId();
             bool   hasError      = false;
             string errorMessage  = null;
-
-            // ── 1. Open exit span on Instana agent ────────────────────────────
-            // The agent returns a spanId + traceId that we propagate downstream.
-            OpenSpan(operationName, soapAction, ref spanId, ref traceId);
+            long   timestamp     = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
             string response = null;
             try
             {
-                // ── 2. SOAP HTTP call ─────────────────────────────────────────
+                // ── SOAP HTTP call ────────────────────────────────────────────
                 var content = new StringContent(soapEnvelope ?? "", Encoding.UTF8, "text/xml");
 
                 // SOAPAction: double-quoted per SOAP 1.1 spec
@@ -80,8 +78,8 @@ namespace LippoLand.Soap.Client
                 };
 
                 // Propagate trace context so LippoLand's backend can continue the trace
-                if (traceId != null) request.Headers.TryAddWithoutValidation("X-INSTANA-T", traceId);
-                if (spanId  != null) request.Headers.TryAddWithoutValidation("X-INSTANA-S", spanId);
+                request.Headers.TryAddWithoutValidation("X-INSTANA-T", traceId);
+                request.Headers.TryAddWithoutValidation("X-INSTANA-S", spanId);
 
                 var httpResponse = _http.Send(request);
                 httpResponse.EnsureSuccessStatusCode();
@@ -96,68 +94,46 @@ namespace LippoLand.Soap.Client
             finally
             {
                 sw.Stop();
-                // ── 3. Close span with duration + tags ────────────────────────
-                CloseSpan(spanId, traceId, operationName, soapAction, sw.ElapsedMilliseconds,
-                          hasError, errorMessage);
+                // ── Report single complete span to agent (duration required) ──
+                ReportSpan(spanId, traceId, operationName, soapAction,
+                           timestamp, sw.ElapsedMilliseconds, hasError, errorMessage);
             }
 
             return response;
         }
 
-        // ── Instana agent REST helpers ────────────────────────────────────────
+        // ── Instana agent REST helper ─────────────────────────────────────────
 
-        private void OpenSpan(string operationName, string soapAction,
-                               ref string spanId, ref string traceId)
+        private void ReportSpan(string spanId, string traceId, string operationName,
+                                 string soapAction, long timestamp, long durationMs,
+                                 bool hasError, string errorMessage)
         {
             try
             {
-                // Generate IDs locally — the agent accepts them as-is
-                spanId  = NewId();
-                traceId = NewId();
-
+                // tags{} → searchable in Instana Unbounded Analytics (SetTag equivalent)
+                // data{} → service/endpoint mapping, not searchable
+                // error must be explicit — omitting it causes Instana to infer errors
                 string body = string.Format(
                     "{{\"spanId\":\"{0}\",\"traceId\":\"{1}\"," +
                     "\"type\":\"EXIT\",\"name\":\"soap.call\"," +
-                    "\"service\":\"LippoLand-OnlineBooking\"," +
-                    "\"endpoint\":\"{2}\"," +
-                    "\"timestamp\":{3}}}",
-                    spanId, traceId, Esc(operationName), DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
-
-                var req = new HttpRequestMessage(HttpMethod.Post,
-                    _agentUrl + "/com.instana.plugin.generic.trace")
-                {
-                    Content = new StringContent(body, Encoding.UTF8, "application/json")
-                };
-                // Fire-and-forget — don't block the SOAP call
-                _instana.Send(req);
-            }
-            catch { /* agent unreachable — tracing degrades gracefully */ }
-        }
-
-        private void CloseSpan(string spanId, string traceId, string operationName,
-                                string soapAction, long durationMs,
-                                bool hasError, string errorMessage)
-        {
-            if (spanId == null) return;
-            try
-            {
-                string errorJson = hasError
-                    ? string.Format(",\"error\":true,\"errorMessage\":\"{0}\"", Esc(errorMessage))
-                    : "";
-
-                string body = string.Format(
-                    "{{\"spanId\":\"{0}\",\"traceId\":\"{1}\"," +
-                    "\"duration\":{2}," +
+                    "\"timestamp\":{2}," +
+                    "\"duration\":{3}," +
+                    "\"error\":{6}," +
+                    "\"tags\":{{" +
+                    "\"soap.action\":\"{5}\"," +
+                    "\"soap.operation\":\"{4}\"" +
+                    "}}," +
                     "\"data\":{{" +
-                    "\"soap.action\":\"{3}\"," +
-                    "\"soap.operation\":\"{4}\"," +
-                    "\"soap.endpoint\":\"{5}\"" +
-                    "}}{6}}}",
-                    spanId, traceId, durationMs,
-                    Esc(soapAction ?? ""),
+                    "\"service\":\"LippoLand-OnlineBooking\"," +
+                    "\"endpoint\":\"{4}\"{7}" +
+                    "}}}}",
+                    spanId, traceId,
+                    timestamp,
+                    durationMs,
                     Esc(operationName),
-                    Esc(_endpointUrl),
-                    errorJson);
+                    Esc(soapAction ?? ""),
+                    hasError ? "true" : "false",
+                    hasError ? string.Format(",\"errorMessage\":\"{0}\"", Esc(errorMessage)) : "");
 
                 var req = new HttpRequestMessage(HttpMethod.Post,
                     _agentUrl + "/com.instana.plugin.generic.trace")
@@ -166,7 +142,7 @@ namespace LippoLand.Soap.Client
                 };
                 _instana.Send(req);
             }
-            catch { /* degrade gracefully */ }
+            catch { /* agent unreachable — degrade gracefully, never break the SOAP call */ }
         }
 
         private static string NewId()
