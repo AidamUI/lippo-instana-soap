@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("LippoLand.Soap.Tests")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+5558c8664b12c87b758b48e25735fc156e2a0a0d")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+71d4509e1934addbf530d5555406ee28d9ca84ee")]
 [assembly: System.Reflection.AssemblyProductAttribute("LippoLand.Soap.Tests")]
 [assembly: System.Reflection.AssemblyTitleAttribute("LippoLand.Soap.Tests")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

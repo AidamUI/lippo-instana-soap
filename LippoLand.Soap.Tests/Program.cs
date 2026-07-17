@@ -19,6 +19,7 @@ namespace LippoLand.Soap.Tests
 
             Run("SoapEnvelopesTests",  SoapEnvelopesTests.Run,  ref passed, ref failed);
             Run("SoapHttpClientTests", SoapHttpClientTests.Run, ref passed, ref failed);
+            Run("ServiceSpanTests",    ServiceSpanTests.Run,    ref passed, ref failed);
 
             Console.WriteLine("\n============================================");
             Console.WriteLine(" Results: {0} passed, {1} failed", passed, failed);

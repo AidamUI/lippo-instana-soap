@@ -11,16 +11,19 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!--
-      No NuGet packages needed — the Instana SDK is stubbed by InstanaStub.cs
-      so tests compile and run without the agent being present.
-    -->
+    <!-- CoreWCF needed because IOnlineBookingService uses [ServiceContract]/[OperationContract] -->
+    <PackageReference Include="CoreWCF.Http"       Version="1.*" />
+    <PackageReference Include="CoreWCF.Primitives" Version="1.*" />
   </ItemGroup>
 
   <ItemGroup>
     <!-- Bring in the client source files directly (no project reference) -->
     <Compile Include="../LippoLand.Soap.Client/SoapEnvelopes.cs" />
     <Compile Include="../LippoLand.Soap.Client/SoapHttpClient.cs" />
+    <!-- Bring in the service source files for server-side span tests -->
+    <Compile Include="../LippoLand.Soap.Service/InstanaSpan.cs" />
+    <Compile Include="../LippoLand.Soap.Service/IOnlineBookingService.cs" />
+    <Compile Include="../LippoLand.Soap.Service/OnlineBookingService.cs" />
   </ItemGroup>
 
 </Project>

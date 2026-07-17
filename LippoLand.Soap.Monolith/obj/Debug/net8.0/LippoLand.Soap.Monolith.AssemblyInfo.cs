@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("LippoLand.Soap.Monolith")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+ec6362511f88c7d93104a9239d4fc2d3c3adcf8d")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+71d4509e1934addbf530d5555406ee28d9ca84ee")]
 [assembly: System.Reflection.AssemblyProductAttribute("LippoLand.Soap.Monolith")]
 [assembly: System.Reflection.AssemblyTitleAttribute("LippoLand.Soap.Monolith")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

@@ -1,90 +1,122 @@
-# LippoLand SOAP + Instana SOAPAction Tracing — POC
+# LippoLand SOAP + Instana — Production Imitation POC
 
-## The Problem
+## What this proves
 
-LippoLand's backend is a **monolith that calls itself via SOAP** (WS_OnlineBooking.asmx).
-Instana auto-traces the HTTP layer but sees every SOAP call as an anonymous
-`POST /WS_OnlineBooking.asmx` — no operation name, no SOAPAction, no dependency link.
+LippoLand's backend is a monolith. One module calls another via internal SOAP over
+localhost. From Instana's perspective those calls are **completely invisible** today.
 
-## The Solution
-
-Use the Instana agent's local REST API to report a named exit span for each SOAP call,
-with `soap.action` tagged. This makes every operation individually filterable in
-Unbounded Analytics and visible as a named dependency in the Service Map.
-
-## What this POC proves
-
-| Without instrumentation | With instrumentation (this code) |
-|---|---|
-| Instana sees: anonymous `HTTP POST` | Instana sees: named `soap.call` exit span |
-| SOAPAction: invisible | `soap.action = "http://tempuri.org/BookingUnit"` |
-| Service Map: no dependency link | Service Map: monolith → self (SOAP) visible |
-| Analytics: not filterable by operation | Analytics: filter by `soap.action`, `soap.operation` |
+This POC imitates the **exact pattern** from the real LippoLand production code
+(screenshot: `CustomSpan.Create()` wrapping `[WebMethod]` bodies) and proves that
+with the instrumentation added, every SOAP operation becomes individually observable.
 
 ---
 
-## Project structure
+## Production code vs this POC
+
+| Real LippoLand (production) | This POC |
+|---|---|
+| `CustomSpan.Create()` — Instana NuGet SDK | `InstanaSpan.Create()` — agent REST API |
+| `span.SetTag("soapAction", "BookingUnit")` | `span.SetTag("soap.action", "BookingUnit")` |
+| `span.WrapAction(() => { DB calls... }, true)` | `span.WrapAction(() => { stub logic... })` |
+| `[WebMethod]` ASMX on .NET Framework 4.x / Windows | `[OperationContract]` CoreWCF on .NET 8 / Linux |
+| Caller: raw `HttpWebRequest` + span | Caller: `SoapHttpClient` + span |
+
+The NuGet SDK (`Instana.ManagedTracing.Sdk`) only ships `net45` — it won't run on
+.NET 8 / Linux. `InstanaSpan` calls the agent's local REST API on port `42699`
+directly. This is IBM's documented approach for modern runtimes and produces
+**identical results** in the Instana UI.
+
+---
+
+## What Instana sees per SOAP call (with instrumentation)
 
 ```
-LippoLand.Soap.sln
-│
-├── LippoLand.Soap.Service/          ← Entity 1: CoreWCF SOAP service (mirrors real WS_OnlineBooking)
-│   ├── IOnlineBookingService.cs     ← [ServiceContract] — real ops from live WSDL
-│   ├── OnlineBookingService.cs      ← Stub implementation (returns realistic JSON)
-│   └── Program.cs                   ← ASP.NET Core + CoreWCF host on :8080
-│
-├── LippoLand.Soap.Client/           ← Entity 2: SOAP caller with Instana tracing
-│   ├── SoapHttpClient.cs            ← THE KEY FILE — exit span via agent REST API
-│   ├── SoapEnvelopes.cs             ← SOAP 1.1 XML with AuthHeader injected
-│   └── Program.cs                   ← Demo: fires 5 real operations
-│
-├── LippoLand.Soap.Monolith/         ← Entity 3: Monolith self-call comparison demo
-│   └── Program.cs                   ← One process: SOAP server + two trigger endpoints
-│                                       GET /trigger/with    → instrumented (Instana sees it)
-│                                       GET /trigger/without → bare HttpClient (Instana blind)
-│
-└── LippoLand.Soap.Tests/            ← Test suite (23 tests, no agent needed)
-    ├── SoapEnvelopesTests.cs        ← 12 tests: XML structure, AuthHeader, escaping
-    ├── SoapHttpClientTests.cs       ← 11 tests: span JSON, propagation headers, HTTP wire
-    ├── InstanaStub.cs               ← HttpMessageHandler stub — intercepts agent REST calls
-    ├── StubHttpListener.cs          ← In-process SOAP backend for integration tests
-    └── Assert.cs                    ← Minimal assertion helpers
+  curl /trigger/with
+       │
+       ▼
+  SoapHttpClient.Call("BookingUnit")          ← CALLER SIDE
+    │
+    ├─► POST /com.instana.plugin.generic.trace  (open EXIT span)
+    │     type:           EXIT
+    │     name:           soap.call
+    │     soap.action:    "http://tempuri.org/BookingUnit"
+    │     soap.operation: "BookingUnit"
+    │
+    ├─► POST /soap  (actual SOAP HTTP call)
+    │     SOAPAction: "http://tempuri.org/BookingUnit"
+    │     X-INSTANA-T: <traceId>
+    │     X-INSTANA-S: <spanId>
+    │         │
+    │         ▼
+    │   OnlineBookingService.BookingUnit()     ← SERVICE SIDE
+    │     InstanaSpan.Create("BookingUnit")
+    │     ≈ CustomSpan.Create() in real LippoLand
+    │
+    │     ├─► POST /com.instana.plugin.generic.trace  (open ENTRY span)
+    │     │     type:       ENTRY
+    │     │     name:       soap.server
+    │     │     soap.action: "BookingUnit"
+    │     │
+    │     └─► POST /com.instana.plugin.generic.trace  (close ENTRY span)
+    │               duration: Xms
+    │               soap.action:    "BookingUnit"
+    │               soap.operation: "BookingUnit"
+    │               soap.type:      "server"
+    │
+    └─► POST /com.instana.plugin.generic.trace  (close EXIT span)
+              duration: Xms
+              soap.action:    "http://tempuri.org/BookingUnit"
 ```
 
----
-
-## Real service facts (from live WSDL)
-
-| Property | Value |
-|---|---|
-| URL | `https://connect.lippoland.id/InternalMobileAppsService/WS_OnlineBooking.asmx` |
-| WSDL | append `?wsdl` |
-| SOAP version | 1.1 |
-| targetNamespace | `http://tempuri.org/` |
-| Auth | SOAP header `AuthHeader` (domainName, userName, password) |
-| Parameter style | Every operation takes a single `string JSON` parameter |
-| Return style | Every operation returns a single `string` (JSON) |
+**2 spans per operation.** Both filterable in Instana Analytics by `soap.action`.
 
 ---
 
-## Runtime requirements
+## Run the demo
 
-| Requirement | Notes |
-|---|---|
-| **Docker** | All builds and runs use `mcr.microsoft.com/dotnet/sdk:8.0` — no local .NET install needed |
-| **Instana Agent** | Must be running on the VM host with port `42699` open |
-| **`--network host`** | Required when running against live backend or Instana agent |
-
-> **No Mono, no msbuild, no Visual Studio needed.** Everything runs via Docker.
-
----
-
-## How to run
-
-### Run the tests (no agent needed)
+### Step 1 — Kill any previous container and start fresh
 
 ```bash
-cd lippo-instana-soap
+docker kill $(docker ps -q) 2>/dev/null; docker rm $(docker ps -aq) 2>/dev/null
+
+cd ~/Documents/lippo/lippo-instana-soap
+
+docker run --rm --network host \
+  -v "$(pwd):/src" -w /src \
+  -e INSTANA_AGENT_URL=http://localhost:42699 \
+  mcr.microsoft.com/dotnet/sdk:8.0 \
+  dotnet run --project LippoLand.Soap.Monolith
+```
+
+Wait for:
+```
+║  LippoLand Monolith Demo  —  running on :8090  ║
+```
+
+### Step 2 — Fire both scenarios (second terminal)
+
+```bash
+# WITH instrumentation — Instana sees 2 spans per operation
+curl http://localhost:8090/trigger/with
+
+# WITHOUT instrumentation — Instana sees nothing
+curl http://localhost:8090/trigger/without
+```
+
+### Step 3 — Verify in Instana
+
+| Where | What to look for |
+|---|---|
+| **Analytics → Calls** | Filter `soap.action = "http://tempuri.org/BookingUnit"` — spans appear only after `/trigger/with` |
+| **Infrastructure → Services** | `LippoLand-OnlineBooking` service node |
+| **Service Map** | Self-referencing arrow (monolith calling itself) |
+
+---
+
+## Run the tests (no agent needed)
+
+```bash
+cd ~/Documents/lippo/lippo-instana-soap
 
 docker run --rm \
   -v "$(pwd):/src" -w /src \
@@ -94,190 +126,119 @@ docker run --rm \
 
 Expected:
 ```
-Results: 2 passed, 0 failed
+Running SoapEnvelopesTests...  PASS   (12 tests — XML structure, AuthHeader, escaping)
+Running SoapHttpClientTests... PASS   (11 tests — exit span, SOAPAction header, propagation)
+Running ServiceSpanTests...    PASS   (8 tests  — entry span, WrapAction, graceful degradation)
+Results: 3 passed, 0 failed
 ```
 
 ---
 
-### Run the Monolith comparison demo (WITH vs WITHOUT)
+## Project structure
 
-This is the main demo. One process hosts the SOAP server and calls itself.
-
-```bash
-# Terminal 1 — start the monolith
-docker run --rm --network host \
-  -v "$(pwd):/src" -w /src \
-  -e INSTANA_AGENT_URL=http://localhost:42699 \
-  mcr.microsoft.com/dotnet/sdk:8.0 \
-  dotnet run --project LippoLand.Soap.Monolith
 ```
-
-```bash
-# Terminal 2 — fire Scenario A (WITH instrumentation)
-curl http://localhost:8090/trigger/with
-
-# Fire Scenario B (WITHOUT instrumentation)
-curl http://localhost:8090/trigger/without
-```
-
-Then compare in Instana:
-- **Analytics → Calls** → filter `soap.action = "http://tempuri.org/BookingUnit"` → Scenario A spans appear, Scenario B does not
-- **Infrastructure → Services** → `LippoLand-OnlineBooking` service node appears after Scenario A
-
----
-
-### Run Service + Client separately
-
-```bash
-# Terminal 1 — SOAP service on :8080
-docker run --rm --network host \
-  -v "$(pwd):/src" -w /src \
-  mcr.microsoft.com/dotnet/sdk:8.0 \
-  dotnet run --project LippoLand.Soap.Service
-
-# Terminal 2 — Client fires 5 SOAP operations
-docker run --rm --network host \
-  -v "$(pwd):/src" -w /src \
-  -e INSTANA_AGENT_URL=http://localhost:42699 \
-  mcr.microsoft.com/dotnet/sdk:8.0 \
-  dotnet run --project LippoLand.Soap.Client
-```
-
-To point at the **real LippoLand backend**:
-```bash
-docker run --rm --network host \
-  -v "$(pwd):/src" -w /src \
-  -e LIPPO_SERVICE_URL=https://connect.lippoland.id/InternalMobileAppsService/WS_OnlineBooking.asmx \
-  -e LIPPO_AUTH_DOMAIN=YOUR_DOMAIN \
-  -e LIPPO_AUTH_USER=YOUR_USERNAME \
-  -e LIPPO_AUTH_PASS=YOUR_PASSWORD \
-  -e INSTANA_AGENT_URL=http://localhost:42699 \
-  mcr.microsoft.com/dotnet/sdk:8.0 \
-  dotnet run --project LippoLand.Soap.Client
+LippoLand.Soap.sln
+│
+├── LippoLand.Soap.Monolith/         ← THE DEMO — run this
+│   └── Program.cs                   ← Single process: SOAP server + /trigger/with + /trigger/without
+│
+├── LippoLand.Soap.Service/          ← SOAP server (also used by Monolith)
+│   ├── IOnlineBookingService.cs     ← [ServiceContract] matching real WSDL
+│   ├── OnlineBookingService.cs      ← [WebMethod] bodies wrapped with InstanaSpan.Create()
+│   │                                   ← mirrors: CustomSpan.Create() in real LippoLand
+│   └── InstanaSpan.cs               ← SERVER-SIDE span helper
+│                                       ← mirrors: Instana.ManagedTracing.Sdk CustomSpan
+│
+├── LippoLand.Soap.Client/           ← SOAP caller (also used by Monolith)
+│   ├── SoapHttpClient.cs            ← CALLER-SIDE span helper (exit span)
+│   ├── SoapEnvelopes.cs             ← SOAP 1.1 XML builder
+│   └── Program.cs                   ← Standalone: fires 5 operations
+│
+└── LippoLand.Soap.Tests/            ← Test suite (31 tests, no agent needed)
+    ├── SoapEnvelopesTests.cs        ← 12 tests: XML, AuthHeader, escaping
+    ├── SoapHttpClientTests.cs       ← 11 tests: exit span, SOAPAction header, propagation
+    ├── ServiceSpanTests.cs          ← 8 tests:  entry span, WrapAction, graceful degradation
+    ├── InstanaStub.cs               ← Intercepts agent REST calls in memory
+    └── StubHttpListener.cs          ← In-process SOAP stub server
 ```
 
 ---
 
-## Instana agent setup on a fresh VM
+## Deploying to production LippoLand
 
-### Install
+1. Copy `InstanaSpan.cs` into the LippoLand solution
+2. Wrap every `[WebMethod]` body exactly as shown in the screenshot:
 
-Get a **fresh agent key** from your Instana UI:
+```csharp
+// BEFORE (what LippoLand has today — invisible to Instana)
+[WebMethod]
+public DataSet GetComponentDiagramatic(string projectcode, string clustercode)
+{
+    DataTable dt = clsDataUnit.GetDataUnitDiagramatic(projectcode, clustercode);
+    ds.Tables.Add(dt);
+    return ds;
+}
+
+// AFTER (with instrumentation — Instana sees each operation individually)
+[WebMethod]
+public DataSet GetComponentDiagramatic(string projectcode, string clustercode)
+{
+    using (var span = InstanaSpan.Create("GetComponentDiagramatic"))
+    {
+        span.SetTag("soap.action", "GetComponentDiagramatic");
+        return span.WrapAction(() =>
+        {
+            DataTable dt = clsDataUnit.GetDataUnitDiagramatic(projectcode, clustercode);
+            ds.Tables.Add(dt);
+            return ds;
+        });
+    }
+}
 ```
-⚙ Settings → Agents → Installing Instana Agents
-```
 
-Copy the exact install command shown there (keys on that page are always valid).
-It will look like:
+3. Ensure the Instana agent is running on the same server (`ss -tlnp | grep 42699`)
+4. Verify in Instana Analytics: filter `soap.action` — each operation appears individually
+
+---
+
+## Real service facts (from live WSDL)
+
+| Property | Value |
+|---|---|
+| URL | `https://connect.lippoland.id/InternalMobileAppsService/WS_OnlineBooking.asmx` |
+| Total operations | 127 |
+| SOAP version | 1.1 and 1.2 |
+| Namespace | `http://tempuri.org/` |
+| Auth | SOAP header `AuthHeader` (domainName, userName, password) on every operation |
+
+---
+
+## Instana agent setup (fresh VM)
 
 ```bash
+# Install (get fresh keys from Instana UI → Settings → Agents)
 curl -o setup_agent.sh https://setup.instana.io/agent \
   && chmod 700 setup_agent.sh \
-  && sudo ./setup_agent.sh \
-    -a <AGENT_KEY> \
-    -d <DOWNLOAD_KEY> \
-    -t dynamic \
-    -e ingress-<your-id>.instana.io \
-    -p 443 \
-    -s
+  && sudo ./setup_agent.sh -a <AGENT_KEY> -d <DOWNLOAD_KEY> \
+     -t dynamic -e ingress-<id>.instana.io -p 443 -s
+
+# Verify agent is ready
+sudo tail -f /opt/instana/agent/data/log/agent.log   # look for "Agent is ready."
+ss -tlnp | grep 42699                                 # port open = healthy
 ```
 
-> ⚠️ The **agent key** (`-a`) and the **download key** (`-d`) may be different values.
-> Both are shown on the install page. Using an old/expired key causes persistent
-> `401 Unauthorized` errors from `artifact-public.instana.io` — always use fresh keys
-> from the UI, never reuse keys from a previous installation.
+### Option A — zero-code baseline
 
-### Verify the agent is ready
-
-```bash
-# Watch for "Agent is ready." in the log
-sudo tail -f /opt/instana/agent/data/log/agent.log
-
-# Confirm port 42699 is open (agent accepts spans)
-ss -tlnp | grep 42699
+Add to `/opt/instana/agent/etc/instana/configuration.yaml`:
+```yaml
+com.instana.plugin.dotnet:
+  extra-http-headers:
+    - SOAPAction
 ```
+Restart agent. `SOAPAction` becomes searchable on raw HTTP spans — no code change needed.
+Limitation: one generic endpoint per URL, not per operation.
 
-Port 42699 open = agent is healthy and accepting spans.
+### Option B — SDK spans (this POC)
 
-### If 42699 never opens (401 loop)
-
-The agent key is wrong. The fix is always the same:
-
-1. Stop and fully remove the agent:
-```bash
-sudo systemctl stop instana-agent
-sudo systemctl disable instana-agent
-sudo rm -rf /opt/instana
-sudo rm -f /usr/lib/systemd/system/instana-agent.service
-sudo rm -rf /etc/systemd/system/instana-agent.service.d
-sudo systemctl daemon-reload
-```
-
-2. Get a **fresh key** from the Instana UI (do not reuse old keys)
-
-3. Reinstall using the command from the UI
-
----
-
-## How the Instana instrumentation works
-
-The `Instana.ManagedTracing.Sdk` NuGet only ships `net45` binaries — it does not run
-on .NET 8 / Linux. Instead, `SoapHttpClient.cs` calls the Instana agent's local REST
-API directly on `http://localhost:42699`. This is the supported approach for modern
-runtimes and produces identical results in the UI.
-
-```
-SOAP call flow (with instrumentation):
-
- 1. POST /com.instana.plugin.generic.trace   ← open exit span, generate spanId + traceId
- 2. HTTP POST /soap                           ← actual SOAP call
-      Headers:
-        SOAPAction: "http://tempuri.org/BookingUnit"   ← SOAP 1.1 spec
-        X-INSTANA-T: <traceId>                         ← trace context propagation
-        X-INSTANA-S: <spanId>                          ← trace context propagation
- 3. POST /com.instana.plugin.generic.trace   ← close span with duration + tags:
-        soap.action    = "http://tempuri.org/BookingUnit"
-        soap.operation = "BookingUnit"
-        soap.endpoint  = "http://localhost:8090/soap"
-```
-
-The `soap.action` tag is what makes each SOAP operation individually visible and
-filterable in Instana Unbounded Analytics.
-
----
-
-## What to expect in Instana after running `/trigger/with`
-
-### Analytics → Calls
-Filter: `soap.action = "http://tempuri.org/BookingUnit"`
-
-| Field | Value |
-|---|---|
-| `name` | `soap.call` |
-| `service` | `LippoLand-OnlineBooking` |
-| `endpoint` | `BookingUnit` |
-| `soap.action` | `http://tempuri.org/BookingUnit` |
-| `soap.operation` | `BookingUnit` |
-| `soap.endpoint` | `http://localhost:8090/soap` |
-| `duration` | actual milliseconds |
-| `error` | `false` |
-
-### Infrastructure → Services
-A service node named `LippoLand-OnlineBooking` appears.
-
-### Infrastructure → Service Map
-The monolith process shows a self-referencing dependency arrow — the monolith
-calling itself via SOAP — which is exactly the LippoLand internal architecture.
-
----
-
-## Deployment checklist for LippoLand production
-
-- [ ] Install Instana agent on the LippoLand application server (use fresh key from UI)
-- [ ] Confirm port 42699 is open on that server
-- [ ] Add `SoapHttpClient.cs` and `SoapEnvelopes.cs` to the LippoLand solution
-- [ ] Replace every raw `HttpWebRequest` / `HttpClient` SOAP call with `SoapHttpClient.Call()`
-- [ ] Set `INSTANA_AGENT_URL=http://localhost:42699` in the app environment
-- [ ] Deploy and trigger a few SOAP operations
-- [ ] Verify in Instana Analytics: filter `soap.action` — operations appear individually
-- [ ] Verify in Instana Service Map: dependency links visible
+`InstanaSpan` / `SoapHttpClient` give each operation its own named span.
+This is what enables per-operation filtering, the Service Map link, and full trace context propagation.

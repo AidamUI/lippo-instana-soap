@@ -13,26 +13,38 @@ using LippoLand.Soap.Service;
 namespace LippoLand.Soap.Monolith
 {
     /// <summary>
-    /// THE MONOLITH SCENARIO.
+    /// PRODUCTION IMITATION — LippoLand Monolith Observability POC.
     ///
-    /// This single process acts as BOTH:
-    ///   - The SOAP server  (CoreWCF on /soap)
-    ///   - The SOAP caller  (triggered via two HTTP endpoints)
+    /// Mirrors the real LippoLand architecture exactly:
+    ///   - One process (the monolith) hosts the SOAP service AND calls it internally
+    ///   - The real ASMX [WebMethod] bodies are wrapped with CustomSpan.Create()
+    ///     (Instana.ManagedTracing.Sdk) — we imitate this with InstanaSpan.Create()
+    ///   - The caller wraps the outbound HTTP POST with SoapHttpClient (exit span)
     ///
-    /// This mirrors LippoLand's real architecture where one module inside the
-    /// monolith calls another module via SOAP over localhost.
+    /// WHAT INSTANA SEES PER SOAP CALL (with instrumentation):
+    ///
+    ///   CALLER SIDE  — SoapHttpClient (exit span)
+    ///     type:      EXIT
+    ///     name:      soap.call
+    ///     soap.action:    "http://tempuri.org/BookingUnit"
+    ///     soap.operation: "BookingUnit"
+    ///
+    ///   SERVICE SIDE — InstanaSpan / CustomSpan.Create() (entry span)
+    ///     type:      ENTRY
+    ///     name:      soap.server
+    ///     soap.action:    "BookingUnit"
+    ///     soap.operation: "BookingUnit"
+    ///     soap.type:      "server"
     ///
     /// TWO TRIGGER ENDPOINTS:
     ///
     ///   GET /trigger/with
-    ///     Uses SoapHttpClient (our instrumented wrapper).
-    ///     → Instana sees: named exit span, soap.action tag, dependency link
-    ///       in the service map, filterable in Unbounded Analytics.
+    ///     Both sides instrumented. Instana sees EXIT + ENTRY spans per operation,
+    ///     soap.action tag, service node, and Service Map dependency link.
     ///
     ///   GET /trigger/without
-    ///     Uses a plain HttpClient with zero instrumentation.
-    ///     → Instana sees: nothing (or at best an anonymous HTTP POST with no
-    ///       SOAPAction, no service name, not linked to any trace).
+    ///     Plain HttpClient + plain service method. Instana sees nothing.
+    ///     This is what LippoLand looks like TODAY without any instrumentation.
     ///
     /// HOW TO RUN:
     ///   docker run --rm --network host -v $(pwd):/src -w /src \
@@ -83,8 +95,10 @@ namespace LippoLand.Soap.Monolith
             smb.HttpGetEnabled = true;
 
             // ── Trigger: WITH instrumentation ─────────────────────────────────
-            // This is what LippoLand SHOULD look like after the SDK integration.
-            // The monolith calls itself via SOAP — Instana sees the full dependency.
+            // Imitates the real LippoLand production code:
+            //   CALLER:  SoapHttpClient.Call()    → EXIT span  (this file)
+            //   SERVICE: InstanaSpan.Create()     → ENTRY span (OnlineBookingService.cs)
+            // Together these produce 2 spans per operation in Instana Analytics.
             app.MapGet("/trigger/with", (HttpContext ctx) =>
             {
                 string scenario = "WITH Instana instrumentation";
@@ -129,7 +143,9 @@ namespace LippoLand.Soap.Monolith
                 catch (Exception ex) { results.AppendLine($"[2] ERROR: {ex.Message}"); }
 
                 results.AppendLine();
-                results.AppendLine("Instana: exit spans reported to agent.");
+                results.AppendLine("Instana: 2 spans per operation reported to agent.");
+                results.AppendLine("  EXIT  span (caller)  — from SoapHttpClient");
+                results.AppendLine("  ENTRY span (service) — from InstanaSpan / CustomSpan.Create()");
                 results.AppendLine($"  Filter in Analytics: soap.action = \"{BASE_ACTION}BookingUnit\"");
                 results.AppendLine("  Check: Infrastructure > Services > LippoLand-OnlineBooking");
 
@@ -138,8 +154,9 @@ namespace LippoLand.Soap.Monolith
             });
 
             // ── Trigger: WITHOUT instrumentation ─────────────────────────────
-            // This is what LippoLand looks like TODAY — no SDK, no span, no tags.
-            // Instana will see a raw HTTP POST at best, with no SOAPAction visible.
+            // This is what LippoLand looks like TODAY.
+            // No SoapHttpClient on the caller. No InstanaSpan on the service method.
+            // Instana sees a raw HTTP POST at best — no SOAPAction, no name, no link.
             app.MapGet("/trigger/without", (HttpContext ctx) =>
             {
                 string scenario = "WITHOUT Instana instrumentation (baseline)";
@@ -193,14 +210,17 @@ namespace LippoLand.Soap.Monolith
 
             // ── Info page ─────────────────────────────────────────────────────
             app.MapGet("/", () => Results.Text(
-                "LippoLand Monolith Demo\n\n" +
+                "LippoLand Monolith — Production Imitation POC\n\n" +
                 "Endpoints:\n" +
-                "  GET /trigger/with     → SOAP self-call WITH Instana instrumentation\n" +
-                "  GET /trigger/without  → SOAP self-call WITHOUT instrumentation\n" +
+                "  GET /trigger/with     → instrumented: EXIT span (caller) + ENTRY span (service)\n" +
+                "  GET /trigger/without  → no instrumentation: Instana sees nothing\n" +
                 "  GET /soap?wsdl        → WSDL for the hosted SOAP service\n\n" +
                 "Run both, then compare in Instana:\n" +
                 "  Analytics > Calls > filter: soap.action = \"http://tempuri.org/BookingUnit\"\n" +
-                "  Infrastructure > Services  (look for LippoLand-OnlineBooking)\n"
+                "  Infrastructure > Services  (look for LippoLand-OnlineBooking)\n\n" +
+                "Production equivalent:\n" +
+                "  SoapHttpClient  ≈  outbound HttpWebRequest wrapper with span\n" +
+                "  InstanaSpan     ≈  CustomSpan.Create() from Instana.ManagedTracing.Sdk\n"
             ));
 
             Console.WriteLine();
